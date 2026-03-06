@@ -29,7 +29,7 @@
       (keydown.enter)="fileInput.click()"
       (keydown.space)="fileInput.click()"
     >
-      <input #fileInput type="file" accept=".csv"
+      <input #fileInput type="file" accept=".csv,.mp3,audio/mpeg"
         class="upload-page__file-input"
         (change)="onFileSelected($event)"
         aria-hidden="true" tabindex="-1" />
@@ -42,7 +42,7 @@
           </svg>
         </div>
         <p class="upload-page__dropzone-label"><span class="upload-page__dropzone-action">Click to upload</span> or drag &amp; drop</p>
-        <p class="upload-page__dropzone-hint">CSV (two columns: time ms, value mV) — up to 50 MB</p>
+        <p class="upload-page__dropzone-hint">CSV (time ms, value mV) or MP3 audio — up to 50 MB</p>
       </ng-container>
 
       <ng-container *ngIf="selectedFile">

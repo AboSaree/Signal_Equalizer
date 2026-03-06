@@ -338,7 +338,9 @@ The **cine viewer** renders two side-by-side animated scrolling waveform canvase
 
 ---
 
-### CSV format expected
+### Supported file formats
+
+#### CSV (ECG / generic signal)
 
 Two columns, no header row. Delimiter: comma, semicolon, or tab.
 
@@ -355,9 +357,29 @@ Two columns, no header row. Delimiter: comma, semicolon, or tab.
 
 Rows that cannot be parsed are silently skipped.
 
+**Axes:** X → `ms`, Y → `mV`. Rendered as a classic line waveform with accent glow.
+
+---
+
+#### MP3 (audio file)
+
+Any standard MP3 file. Decoded entirely in the browser using the **Web Audio API** — no server upload, no extra library.
+
+| Property | Detail |
+|---|---|
+| Channel used | Channel 0 (left / mono) |
+| Time unit | seconds (`s`) |
+| Amplitude range | −1.0 to 1.0 (normalised PCM) |
+| Downsampling | ~4 000 samples/sec (1 in every `⌊sampleRate / 4000⌋` samples kept) |
+
+**Axes:** X → `s`, Y → `Amplitude`. Rendered as a **filled mirror waveform** (audio envelope style) — filled regions above and below zero with a line stroke on top, matching the visual language of standard audio editors.
+
 ---
 
 ### Architecture — how it works
+
+#### File-type detection
+`onAnalyse()` checks `file.type` and the file extension. CSV files go through `parseCSV()`; MP3 files go through `parseMP3()`. Both converge on a shared `loadSignal(samples)` method that sets Y limits, resets view state, and starts the animation. The boolean flag `isAudioFile` is set before calling `loadSignal()` and controls axis labels and render style throughout.
 
 #### History buffer
 Every sample consumed by the playhead is pushed into `history: SignalSample[]`. This is the source of truth for all rendering — it enables panning into the past and re-rendering at any zoom level without re-reading the signal array.
@@ -427,8 +449,9 @@ The **Speed** group shows a live badge (e.g. `1.0×`, `2.3×`) reflecting the cu
 
 | Property | Type | Purpose |
 |---|---|---|
-| `signal` | `SignalSample[]` | Parsed CSV data — never mutated after parsing |
+| `signal` | `SignalSample[]` | Parsed file data — never mutated after parsing |
 | `history` | `SignalSample[]` | All samples consumed so far — source for pan/zoom |
+| `isAudioFile` | `boolean` | `true` when an MP3 was loaded; drives axis labels (`s`/`Amplitude`) and filled waveform render style |
 | `signalIndex` | `number` | Index of the next sample to consume from `signal` |
 | `pixelsPerSample` | `number` | Current zoom level (default `1`) |
 | `samplesPerFrame` | `number` | Current speed (default `1`) |
@@ -442,9 +465,14 @@ The **Speed** group shows a live badge (e.g. `1.0×`, `2.3×`) reflecting the cu
 
 ---
 
-### Theming
+### Render styles
 
-The canvas uses a dark background (`#0d0d0d` / `#111111`) to contrast with the light page. The waveform is drawn in `--color-accent` (`#7b6ee0`) with a `shadowBlur: 6` glow.
+The canvas uses a dark background (`#0d0d0d` / `#111111`) to contrast with the light page. The waveform is always drawn in `--color-accent` (`#7b6ee0`).
+
+| File type | Render style | Why |
+|---|---|---|
+| CSV (ECG) | Line waveform, `lineWidth 1.8`, `shadowBlur 6` glow | Sharp single-line trace matches ECG / oscilloscope convention |
+| MP3 (audio) | Filled mirror waveform — two filled regions above/below zero + outline stroke | Matches the visual language of standard audio editors (Audacity, Adobe Audition, etc.) |
 
 The control panel (`.ctrl-panel`) sits on `--color-white` with a light border and subtle shadow, styled with four button variants:
 
@@ -486,6 +514,8 @@ The control panel (`.ctrl-panel`) sits on `--color-white` with a light border an
 | v5.1 | Pan fixes | • Reversed pan direction — drag right moves forward in time (matches standard chart behaviour)<br>• Removed pan offset indicator text from canvas top-right |
 | v5.2 | Dual-plot layout | • Added second (Output Signal) canvas to the right of Input Signal<br>• Single shared control panel drives both plots simultaneously<br>• Responsive: side-by-side ≥ 860 px, stacked < 860 px<br>• `.dual-viewer` wrapper expands to 1720 px for wide screens<br>• `outputCanvasRef` ViewChild wired to separate `<canvas #outputCanvas>`<br>• `renderCanvas()` called for both contexts each frame/pause redraw<br>• GUIDE.md Section 13 updated with dual-viewer layout docs |
 | v5.2.1 | Upload section alignment | • Restored `align-items: center` on `.upload-page` — upload block re-centred; dual-viewer and ctrl-panel-wrap remain full-width beneath it |
+| v5.3 | MP3 audio support | • Dropzone now accepts `.csv` and `.mp3` / `audio/mpeg`<br>• `onAnalyse()` branches on file type; `parseMP3()` uses Web Audio API (`AudioContext.decodeAudioData`) — no extra library<br>• Audio downsampled to ~4 000 smp/s via `KEEP_EVERY` to keep canvas performance smooth<br>• `loadSignal()` extracted as shared entry point for both CSV and audio paths<br>• `isAudioFile` flag drives axis labels: CSV → `ms` / `mV`; MP3 → `s` / `Amplitude`<br>• Audio rendered as filled mirror waveform (envelope style); CSV keeps classic line waveform<br>• `resetCine()` clears `isAudioFile` on new file selection<br>• GUIDE.md Section 13 updated: supported formats, axis rules, render styles, property table |
+| v5.3.1 | MP3 analyse fix | • Fixed silent crash on Analyse: `Math.min/max(...vals)` spread caused a stack overflow on large audio arrays — replaced with a safe `for` loop in `loadSignal()`<br>• Fixed Angular change detection miss: `parseMP3` is async (runs outside Angular zone); wrapped `loadSignal()` call in `NgZone.run()` so `showCine = true` triggers the template update |
 
 ---
 

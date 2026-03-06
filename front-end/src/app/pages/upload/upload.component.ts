@@ -1,10 +1,10 @@
-import { Component, ElementRef, ViewChild, OnDestroy } from '@angular/core';
+import { Component, ElementRef, ViewChild, OnDestroy, NgZone } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
 
 interface SignalSample {
-  time: number;   // ms
-  value: number;  // mV
+  time: number;   // ms (CSV) or seconds (audio)
+  value: number;  // mV (CSV) or amplitude -1..1 (audio)
 }
 
 @Component({
@@ -25,6 +25,9 @@ export class UploadComponent implements OnDestroy {
   // ── Cine viewer state ─────────────────────────────
   showCine = false;
   isPlaying = false;
+
+  // ── File-type flag — drives axis labels & x formatting ──
+  isAudioFile = false;
 
   private signal: SignalSample[] = [];
   private rafId: number | null = null;
@@ -80,7 +83,7 @@ export class UploadComponent implements OnDestroy {
   private _onTouchMove!:  (e: TouchEvent) => void;
   private _onTouchEnd!:   (e: TouchEvent) => void;
 
-  constructor(private router: Router) {}
+  constructor(private router: Router, private ngZone: NgZone) {}
 
   ngOnDestroy(): void { this.stopAnimation(); }
 
@@ -109,9 +112,15 @@ export class UploadComponent implements OnDestroy {
 
   onAnalyse(): void {
     if (!this.selectedFile) return;
-    const reader = new FileReader();
-    reader.onload = (e) => this.parseCSV(e.target?.result as string);
-    reader.readAsText(this.selectedFile);
+    const isAudio = this.selectedFile.type === 'audio/mpeg' ||
+                    this.selectedFile.name.toLowerCase().endsWith('.mp3');
+    if (isAudio) {
+      this.parseMP3(this.selectedFile);
+    } else {
+      const reader = new FileReader();
+      reader.onload = (e) => this.parseCSV(e.target?.result as string);
+      reader.readAsText(this.selectedFile);
+    }
   }
 
   private parseCSV(text: string): void {
@@ -125,12 +134,40 @@ export class UploadComponent implements OnDestroy {
       if (!isNaN(t) && !isNaN(v)) samples.push({ time: t, value: v });
     }
     if (!samples.length) return;
+    this.isAudioFile = false;
+    this.loadSignal(samples);
+  }
 
+  private async parseMP3(file: File): Promise<void> {
+    const arrayBuffer = await file.arrayBuffer();
+    const audioCtx = new AudioContext();
+    const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+
+    const raw        = audioBuffer.getChannelData(0);   // channel 0, Float32 -1..1
+    const sampleRate = audioBuffer.sampleRate;           // e.g. 44100
+
+    // Downsample to ~4000 samples/sec — keeps canvas performance smooth
+    const KEEP_EVERY = Math.max(1, Math.floor(sampleRate / 4000));
+    const samples: SignalSample[] = [];
+    for (let i = 0; i < raw.length; i += KEEP_EVERY) {
+      samples.push({ time: i / sampleRate, value: raw[i] }); // time in seconds
+    }
+
+    this.isAudioFile = true;
+    // Re-enter Angular zone so change detection picks up showCine = true
+    this.ngZone.run(() => this.loadSignal(samples));
+  }
+
+  private loadSignal(samples: SignalSample[]): void {
     this.signal = samples;
 
-    // Dynamic Y limits with 10% padding
-    const vals = samples.map(s => s.value);
-    const dMin = Math.min(...vals), dMax = Math.max(...vals);
+    // Safe min/max loop — spread operator crashes on large arrays (stack overflow)
+    let dMin = Infinity, dMax = -Infinity;
+    for (let i = 0; i < samples.length; i++) {
+      const v = samples[i].value;
+      if (v < dMin) dMin = v;
+      if (v > dMax) dMax = v;
+    }
     const pad = (dMax - dMin || 1) * 0.1;
     this.yMinBase = dMin - pad; this.yMaxBase = dMax + pad;
     this.yMin = this.yMinBase; this.yMax = this.yMaxBase;
@@ -199,9 +236,15 @@ export class UploadComponent implements OnDestroy {
     const samplesVisible = Math.max(2, Math.round(plotW / this.pixelsPerSample));
 
     // Head = last history index visible (honoring pan)
-    const headIdx = Math.max(0, this.history.length - 1 - this.panOffset);
-    const tailIdx = Math.max(0, headIdx - samplesVisible + 1);
+    const headIdx    = Math.max(0, this.history.length - 1 - this.panOffset);
+    const tailIdx    = Math.max(0, headIdx - samplesVisible + 1);
     const windowSlice = this.history.slice(tailIdx, headIdx + 1);
+
+    // ── Axis meta (driven by file type) ───────────────
+    const xUnit     = this.isAudioFile ? 's'         : 'ms';
+    const yUnit     = this.isAudioFile ? 'Amplitude' : 'mV';
+    const xDecimals = this.isAudioFile ? 2            : 0;
+    const yDecimals = this.isAudioFile ? 2            : 2;
 
     // Background
     ctx.clearRect(0, 0, W, H);
@@ -225,7 +268,7 @@ export class UploadComponent implements OnDestroy {
     ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
     for (let i = 0; i <= 4; i++) {
       const val = this.yMin + (1 - i / 4) * (this.yMax - this.yMin);
-      ctx.fillText(val.toFixed(2), pl - 6, pt + (plotH / 4) * i);
+      ctx.fillText(val.toFixed(yDecimals), pl - 6, pt + (plotH / 4) * i);
     }
 
     // Y title
@@ -233,37 +276,84 @@ export class UploadComponent implements OnDestroy {
     ctx.translate(12, pt + plotH / 2); ctx.rotate(-Math.PI / 2);
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillStyle = 'rgba(255,255,255,0.4)'; ctx.font = '11px DM Sans, sans-serif';
-    ctx.fillText('mV', 0, 0); ctx.restore();
+    ctx.fillText(yUnit, 0, 0); ctx.restore();
 
     // X labels
     ctx.textAlign = 'center'; ctx.textBaseline = 'top';
     ctx.fillStyle = 'rgba(255,255,255,0.5)'; ctx.font = '10px DM Sans, sans-serif';
     for (let i = 0; i <= 4; i++) {
       const idx = Math.round((windowSlice.length - 1) * (i / 4));
-      const t = windowSlice[idx]?.time ?? 0;
-      ctx.fillText(t.toFixed(0), pl + (plotW / 4) * i, pt + plotH + 5);
+      const t   = windowSlice[idx]?.time ?? 0;
+      ctx.fillText(t.toFixed(xDecimals), pl + (plotW / 4) * i, pt + plotH + 5);
     }
 
     // X title
     ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
     ctx.fillStyle = 'rgba(255,255,255,0.4)'; ctx.font = '11px DM Sans, sans-serif';
-    ctx.fillText('ms', pl + plotW / 2, H - 2);
+    ctx.fillText(xUnit, pl + plotW / 2, H - 2);
 
-
-    // Waveform
+    // ── Waveform ──────────────────────────────────────
     if (windowSlice.length > 1) {
-      const xScale = plotW / (windowSlice.length - 1);
-      const toY = (v: number) => pt + plotH * (1 - (v - this.yMin) / (this.yMax - this.yMin));
+      const toY = (v: number) =>
+        pt + plotH * (1 - (v - this.yMin) / (this.yMax - this.yMin));
 
-      ctx.shadowColor = '#7b6ee0'; ctx.shadowBlur = 6;
-      ctx.strokeStyle = '#7b6ee0'; ctx.lineWidth = 1.8;
-      ctx.lineJoin = 'round'; ctx.lineCap = 'round';
-      ctx.beginPath();
-      ctx.moveTo(pl, toY(windowSlice[0].value));
-      for (let i = 1; i < windowSlice.length; i++) {
-        ctx.lineTo(pl + i * xScale, toY(windowSlice[i].value));
+      if (this.isAudioFile) {
+        // Audio: filled mirror waveform (envelope style)
+        const zeroY  = toY(0);
+        const xScale = plotW / (windowSlice.length - 1);
+
+        // Filled area above zero
+        ctx.fillStyle = 'rgba(123,110,224,0.35)';
+        ctx.beginPath();
+        ctx.moveTo(pl, zeroY);
+        for (let i = 0; i < windowSlice.length; i++) {
+          const x = pl + i * xScale;
+          const y = toY(Math.max(0, windowSlice[i].value));
+          ctx.lineTo(x, y);
+        }
+        ctx.lineTo(pl + (windowSlice.length - 1) * xScale, zeroY);
+        ctx.closePath(); ctx.fill();
+
+        // Filled area below zero (mirrored)
+        ctx.fillStyle = 'rgba(123,110,224,0.35)';
+        ctx.beginPath();
+        ctx.moveTo(pl, zeroY);
+        for (let i = 0; i < windowSlice.length; i++) {
+          const x = pl + i * xScale;
+          const y = toY(Math.min(0, windowSlice[i].value));
+          ctx.lineTo(x, y);
+        }
+        ctx.lineTo(pl + (windowSlice.length - 1) * xScale, zeroY);
+        ctx.closePath(); ctx.fill();
+
+        // Centre zero line
+        ctx.strokeStyle = 'rgba(255,255,255,0.15)'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(pl, zeroY); ctx.lineTo(pl + plotW, zeroY); ctx.stroke();
+
+        // Top outline stroke
+        ctx.shadowColor = '#7b6ee0'; ctx.shadowBlur = 4;
+        ctx.strokeStyle = '#7b6ee0'; ctx.lineWidth = 1.2;
+        ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(pl, toY(windowSlice[0].value));
+        for (let i = 1; i < windowSlice.length; i++) {
+          ctx.lineTo(pl + i * xScale, toY(windowSlice[i].value));
+        }
+        ctx.stroke(); ctx.shadowBlur = 0;
+
+      } else {
+        // CSV / ECG: classic line waveform
+        const xScale = plotW / (windowSlice.length - 1);
+        ctx.shadowColor = '#7b6ee0'; ctx.shadowBlur = 6;
+        ctx.strokeStyle = '#7b6ee0'; ctx.lineWidth = 1.8;
+        ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(pl, toY(windowSlice[0].value));
+        for (let i = 1; i < windowSlice.length; i++) {
+          ctx.lineTo(pl + i * xScale, toY(windowSlice[i].value));
+        }
+        ctx.stroke(); ctx.shadowBlur = 0;
       }
-      ctx.stroke(); ctx.shadowBlur = 0;
     }
 
     // Border
@@ -387,6 +477,7 @@ export class UploadComponent implements OnDestroy {
   private resetCine(): void {
     this.stopAnimation();
     this.showCine = false;
+    this.isAudioFile = false;
     this.signal = []; this.history = [];
     this.signalIndex = 0; this.panOffset = 0;
     this.pixelsPerSample = this.DEFAULT_PPS;
