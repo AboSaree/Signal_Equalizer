@@ -1,0 +1,48 @@
+.navbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.5rem 2.5rem;
+  background: transparent;
+
+  &__logo {
+    font-family: var(--font-primary);
+    font-size: 1.1rem;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    color: var(--color-black);
+    text-decoration: none;
+    transition: opacity var(--transition-base);
+
+    &:hover {
+      opacity: 0.6;
+    }
+  }
+
+  &__right {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  &__icon-btn {
+    background: none;
+    border: none;
+    padding: 0.25rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--color-black);
+    cursor: pointer;
+    transition: opacity var(--transition-base);
+
+    &:hover {
+      opacity: 0.5;
+    }
+  }
+}
