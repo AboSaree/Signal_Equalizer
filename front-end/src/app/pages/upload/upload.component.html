@@ -1,0 +1,211 @@
+<main class="upload-page" role="main">
+
+  <!-- Back arrow -->
+  <button class="upload-page__back" (click)="onBackClick()" aria-label="Back to home">
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <path d="M12.5 15L7.5 10L12.5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    Back
+  </button>
+
+  <!-- Upload block -->
+  <div class="upload-page__content">
+    <div class="upload-page__header">
+      <h1 class="upload-page__title">Upload Signal</h1>
+      <p class="upload-page__subtitle">Import your signal data file to begin visualization and analysis.</p>
+    </div>
+
+    <!-- Drop zone -->
+    <div
+      class="upload-page__dropzone"
+      [class.upload-page__dropzone--drag-over]="isDragOver"
+      [class.upload-page__dropzone--has-file]="selectedFile"
+      (dragover)="onDragOver($event)"
+      (dragleave)="onDragLeave($event)"
+      (drop)="onDrop($event)"
+      (click)="fileInput.click()"
+      role="button" tabindex="0"
+      aria-label="Upload file — click or drag and drop"
+      (keydown.enter)="fileInput.click()"
+      (keydown.space)="fileInput.click()"
+    >
+      <input #fileInput type="file" accept=".csv"
+        class="upload-page__file-input"
+        (change)="onFileSelected($event)"
+        aria-hidden="true" tabindex="-1" />
+
+      <ng-container *ngIf="!selectedFile">
+        <div class="upload-page__dropzone-icon" aria-hidden="true">
+          <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
+            <path d="M20 28V12M20 12L13 19M20 12L27 19" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M8 30C5.239 30 3 27.761 3 25C3 22.44 4.93 20.33 7.42 20.04C7.15 19.4 7 18.72 7 18C7 14.686 9.686 12 13 12C13.17 12 13.34 12.007 13.51 12.02C14.56 9.09 17.35 7 20.64 7C24.94 7 28.44 10.5 28.44 14.8C28.44 14.87 28.44 14.94 28.43 15.01C31.04 15.42 33 17.67 33 20.4C33 22.65 31.65 24.58 29.72 25.52" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <p class="upload-page__dropzone-label"><span class="upload-page__dropzone-action">Click to upload</span> or drag &amp; drop</p>
+        <p class="upload-page__dropzone-hint">CSV (two columns: time ms, value mV) — up to 50 MB</p>
+      </ng-container>
+
+      <ng-container *ngIf="selectedFile">
+        <div class="upload-page__dropzone-icon upload-page__dropzone-icon--success" aria-hidden="true">
+          <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
+            <path d="M10 20L17 27L30 13" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <p class="upload-page__dropzone-label">{{ selectedFile.name }}</p>
+        <p class="upload-page__dropzone-hint">{{ fileSizeLabel }} — click to replace</p>
+      </ng-container>
+    </div>
+
+    <!-- Analyse CTA -->
+    <button class="upload-page__cta" [disabled]="!selectedFile" (click)="onAnalyse()" aria-label="Analyse signal">
+      Analyse
+    </button>
+  </div>
+
+  <!-- ══════════════════════════════════════════════
+       DUAL CINE VIEWER
+  ══════════════════════════════════════════════════ -->
+  <section class="dual-viewer" *ngIf="showCine" aria-label="Signal viewers">
+
+    <!-- Left: Input Signal -->
+    <div class="cine-viewer">
+      <h2 class="cine-viewer__title">Input Signal</h2>
+      <div class="cine-viewer__canvas-wrap">
+        <canvas
+          #cineCanvas
+          [width]="CANVAS_W"
+          [height]="CANVAS_H"
+          class="cine-viewer__canvas"
+          aria-label="Live scrolling input signal waveform"
+        ></canvas>
+        <p class="cine-viewer__pan-hint">Drag to pan</p>
+      </div>
+    </div>
+
+    <!-- Right: Output Signal -->
+    <div class="cine-viewer">
+      <h2 class="cine-viewer__title">Output Signal</h2>
+      <div class="cine-viewer__canvas-wrap">
+        <canvas
+          #outputCanvas
+          [width]="CANVAS_W"
+          [height]="CANVAS_H"
+          class="cine-viewer__canvas"
+          aria-label="Live scrolling output signal waveform"
+        ></canvas>
+        <p class="cine-viewer__pan-hint">Drag to pan</p>
+      </div>
+    </div>
+
+  </section>
+
+  <!-- Controls panel — shared, below both plots -->
+  <div class="ctrl-panel-wrap" *ngIf="showCine">
+    <div class="ctrl-panel" role="group" aria-label="Signal controls">
+
+      <!-- Row 1: Playback -->
+      <div class="ctrl-panel__group">
+        <span class="ctrl-panel__label">Playback</span>
+        <div class="ctrl-panel__row">
+
+          <button class="ctrl-btn ctrl-btn--primary"
+            (click)="onStop()" [disabled]="!isPlaying"
+            aria-label="Stop">
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
+              <rect x="1" y="1" width="10" height="10" rx="1.5"/>
+            </svg>
+            Stop
+          </button>
+
+          <button class="ctrl-btn ctrl-btn--outline"
+            (click)="onResume()" [disabled]="isPlaying || signalFinished"
+            aria-label="Resume">
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
+              <path d="M3 2L10 6L3 10V2Z"/>
+            </svg>
+            Resume
+          </button>
+
+          <button class="ctrl-btn ctrl-btn--ghost"
+            (click)="onRestart()"
+            aria-label="Restart">
+            <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M2 6.5A4.5 4.5 0 1 0 4.5 2.5"/>
+              <path d="M2 2.5V6.5H6"/>
+            </svg>
+            Restart
+          </button>
+
+        </div>
+      </div>
+
+      <!-- Divider -->
+      <div class="ctrl-panel__divider"></div>
+
+      <!-- Row 2: Zoom -->
+      <div class="ctrl-panel__group">
+        <span class="ctrl-panel__label">Zoom</span>
+        <div class="ctrl-panel__row">
+          <button class="ctrl-btn ctrl-btn--ghost" (click)="onZoomIn()" aria-label="Zoom in">
+            <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+              <circle cx="5.5" cy="5.5" r="4"/>
+              <line x1="9" y1="9" x2="12" y2="12"/>
+              <line x1="3.5" y1="5.5" x2="7.5" y2="5.5"/>
+              <line x1="5.5" y1="3.5" x2="5.5" y2="7.5"/>
+            </svg>
+            Zoom +
+          </button>
+          <button class="ctrl-btn ctrl-btn--ghost" (click)="onZoomOut()" aria-label="Zoom out">
+            <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+              <circle cx="5.5" cy="5.5" r="4"/>
+              <line x1="9" y1="9" x2="12" y2="12"/>
+              <line x1="3.5" y1="5.5" x2="7.5" y2="5.5"/>
+            </svg>
+            Zoom −
+          </button>
+        </div>
+      </div>
+
+      <!-- Divider -->
+      <div class="ctrl-panel__divider"></div>
+
+      <!-- Row 3: Speed -->
+      <div class="ctrl-panel__group">
+        <span class="ctrl-panel__label">Speed <em class="ctrl-panel__badge">{{ speedLabel }}</em></span>
+        <div class="ctrl-panel__row">
+          <button class="ctrl-btn ctrl-btn--ghost" (click)="onSpeedUp()" aria-label="Speed up">
+            <svg width="13" height="13" viewBox="0 0 13 13" fill="currentColor" aria-hidden="true">
+              <path d="M1 2.5L6.5 7L1 11.5V2.5ZM7 2.5L12.5 7L7 11.5V2.5Z"/>
+            </svg>
+            Speed +
+          </button>
+          <button class="ctrl-btn ctrl-btn--ghost" (click)="onSpeedDown()" aria-label="Slow down">
+            <svg width="13" height="13" viewBox="0 0 13 13" fill="currentColor" aria-hidden="true">
+              <path d="M6 2.5L0.5 7L6 11.5V2.5ZM12 2.5L6.5 7L12 11.5V2.5Z"/>
+            </svg>
+            Speed −
+          </button>
+        </div>
+      </div>
+
+      <!-- Divider -->
+      <div class="ctrl-panel__divider"></div>
+
+      <!-- Row 4: Reset -->
+      <div class="ctrl-panel__group">
+        <span class="ctrl-panel__label">View</span>
+        <div class="ctrl-panel__row">
+          <button class="ctrl-btn ctrl-btn--reset" (click)="onReset()" aria-label="Reset view">
+            <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M1 2v4h4"/>
+              <path d="M1.5 8A5 5 0 1 0 3 4.5L1 6"/>
+            </svg>
+            Reset
+          </button>
+        </div>
+      </div>
+
+    </div><!-- /ctrl-panel -->
+  </div><!-- /ctrl-panel-wrap -->
+
+</main>

@@ -1,0 +1,325 @@
+/* =====================================================
+   UPLOAD PAGE
+   ===================================================== */
+
+.upload-page {
+  position: relative;
+  min-height: 100vh;
+  width: 100%;
+  background-color: var(--color-bg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 6rem 2rem 5rem;
+
+  &__back {
+    position: absolute;
+    top: 2rem; left: 2.5rem;
+    display: inline-flex; align-items: center; gap: 0.5rem;
+    background: none; border: none; cursor: pointer;
+    font-family: var(--font-primary); font-size: 0.875rem;
+    font-weight: 500; color: var(--color-text-muted);
+    padding: 0.5rem 0.75rem; border-radius: 9999px;
+    transition: background-color var(--transition-base), color var(--transition-base);
+    svg { flex-shrink: 0; }
+    &:hover { background-color: rgba(10,10,10,0.06); color: var(--color-black); }
+    &:focus-visible { outline: 3px solid var(--color-accent); outline-offset: 4px; }
+  }
+
+  &__content {
+    width: 100%; max-width: 560px;
+    display: flex; flex-direction: column; gap: 2rem;
+    animation: fadeUp 0.7s cubic-bezier(0.4,0,0.2,1) both;
+  }
+
+  &__header { display: flex; flex-direction: column; gap: 0.5rem; }
+
+  &__title {
+    font-size: clamp(2.5rem, 5vw, 4rem);
+    font-weight: 700; letter-spacing: -0.04em;
+    line-height: 0.95; color: var(--color-black);
+  }
+
+  &__subtitle {
+    font-size: 0.875rem; font-weight: 300;
+    line-height: 1.6; color: var(--color-text-muted); max-width: 380px;
+  }
+
+  &__dropzone {
+    position: relative; width: 100%;
+    border: 2px dashed rgba(10,10,10,0.2); border-radius: 1.25rem;
+    background-color: rgba(10,10,10,0.02);
+    padding: 3rem 2rem;
+    display: flex; flex-direction: column; align-items: center; gap: 0.75rem;
+    cursor: pointer;
+    transition: border-color var(--transition-base), background-color var(--transition-base), transform var(--transition-base);
+
+    &:hover { border-color: var(--color-black); background-color: rgba(10,10,10,0.04); }
+    &:focus-visible { outline: 3px solid var(--color-accent); outline-offset: 4px; }
+    &--drag-over { border-color: var(--color-black); background-color: rgba(10,10,10,0.06); transform: scale(1.01); }
+    &--has-file  { border-style: solid; border-color: var(--color-black); background-color: rgba(10,10,10,0.03); }
+  }
+
+  &__file-input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+
+  &__dropzone-icon {
+    color: var(--color-text-muted);
+    transition: color var(--transition-base), transform var(--transition-base);
+    .upload-page__dropzone:hover & { color: var(--color-black); transform: translateY(-3px); }
+    &--success { color: var(--color-black); }
+  }
+
+  &__dropzone-label { font-size: 1rem; font-weight: 500; color: var(--color-black); text-align: center; word-break: break-all; }
+  &__dropzone-action { text-decoration: underline; text-underline-offset: 3px; }
+  &__dropzone-hint   { font-size: 0.8rem; font-weight: 300; color: var(--color-text-light); text-align: center; }
+
+  &__cta {
+    display: inline-flex; align-items: center; justify-content: center; align-self: center;
+    padding: 1.25rem 3.5rem; font-size: 1.5rem; font-weight: 500;
+    letter-spacing: -0.01em; line-height: 1;
+    background-color: var(--color-black); color: var(--color-white);
+    border-radius: 9999px; border: none; cursor: pointer;
+    font-family: var(--font-primary);
+    transition: background-color var(--transition-base), transform var(--transition-base),
+                box-shadow var(--transition-base), opacity var(--transition-base);
+
+    &:disabled { opacity: 0.3; cursor: not-allowed; }
+    &:not(:disabled):hover  { background-color: #1e1e1e; transform: translateY(-2px); box-shadow: 0 8px 32px rgba(0,0,0,0.18); }
+    &:not(:disabled):active { transform: translateY(0); box-shadow: none; }
+    &:focus-visible         { outline: 3px solid var(--color-accent); outline-offset: 4px; }
+  }
+}
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(24px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@media (max-width: 600px) {
+  .upload-page {
+    padding: 1.5rem; justify-content: flex-start; padding-top: 5rem;
+    &__back   { top: 1.25rem; left: 1.25rem; }
+    &__title  { font-size: clamp(2rem, 10vw, 3rem); }
+    &__dropzone { padding: 2.5rem 1.25rem; }
+    &__cta    { padding: 1rem 2.5rem; font-size: 1.25rem; }
+  }
+}
+
+/* =====================================================
+   DUAL VIEWER WRAPPER
+   ===================================================== */
+
+.dual-viewer {
+  width: 100%;
+  max-width: 1720px;
+  margin-top: 3.5rem;
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 1.5rem;
+  animation: fadeUp 0.6s cubic-bezier(0.4,0,0.2,1) both;
+}
+
+/* =====================================================
+   CTRL PANEL WRAPPER (shared, below both plots)
+   ===================================================== */
+
+.ctrl-panel-wrap {
+  width: 100%;
+  max-width: 1720px;
+  margin-top: 1.25rem;
+  animation: fadeUp 0.65s cubic-bezier(0.4,0,0.2,1) both;
+}
+
+/* =====================================================
+   CINE VIEWER (individual panel)
+   ===================================================== */
+
+.cine-viewer {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+
+  &__title {
+    font-size: 1.1rem; font-weight: 600;
+    letter-spacing: -0.02em; color: var(--color-black);
+    align-self: flex-start;
+  }
+
+  &__canvas-wrap {
+    position: relative;
+    width: 100%; border-radius: 1rem; overflow: hidden;
+    box-shadow: 0 4px 40px rgba(0,0,0,0.14);
+  }
+
+  &__canvas {
+    display: block; width: 100%; height: auto;
+    background: #0d0d0d; user-select: none;
+  }
+
+  &__pan-hint {
+    position: absolute; bottom: 10px; right: 12px;
+    font-size: 0.7rem; font-weight: 400;
+    color: rgba(255,255,255,0.22);
+    pointer-events: none;
+    font-family: var(--font-primary);
+  }
+}
+
+/* Stack vertically on narrow screens */
+@media (max-width: 860px) {
+  .dual-viewer {
+    flex-direction: column;
+    margin-top: 2.5rem;
+  }
+
+  .cine-viewer {
+    &__canvas-wrap { border-radius: 0.75rem; }
+  }
+}
+
+/* =====================================================
+   CONTROL PANEL
+   ===================================================== */
+
+.ctrl-panel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0;
+  width: 100%;
+  background-color: var(--color-white);
+  border: 1px solid rgba(10,10,10,0.08);
+  border-radius: 1rem;
+  padding: 1.1rem 1.4rem;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.05);
+
+  &__group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+    padding: 0 1.2rem;
+    flex: 1 1 auto;
+
+    &:first-child { padding-left: 0; }
+    &:last-child  { padding-right: 0; }
+  }
+
+  &__label {
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--color-text-light);
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+
+  &__badge {
+    font-style: normal;
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0;
+    text-transform: none;
+    color: var(--color-accent);
+    background: rgba(123,110,224,0.1);
+    padding: 0.05rem 0.4rem;
+    border-radius: 99px;
+  }
+
+  &__row {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    flex-wrap: wrap;
+  }
+
+  &__divider {
+    width: 1px;
+    align-self: stretch;
+    background-color: rgba(10,10,10,0.08);
+    margin: 0;
+    flex-shrink: 0;
+  }
+}
+
+/* =====================================================
+   CONTROL BUTTONS
+   ===================================================== */
+
+.ctrl-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.45rem 0.9rem;
+  font-family: var(--font-primary);
+  font-size: 0.8rem;
+  font-weight: 500;
+  border-radius: 9999px;
+  border: none;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background-color var(--transition-base),
+    color var(--transition-base),
+    transform var(--transition-base),
+    box-shadow var(--transition-base),
+    opacity var(--transition-base);
+
+  svg { flex-shrink: 0; }
+
+  &:focus-visible { outline: 3px solid var(--color-accent); outline-offset: 3px; }
+
+  &:disabled { opacity: 0.3; cursor: not-allowed; transform: none !important; box-shadow: none !important; }
+
+  // Solid dark — Stop
+  &--primary {
+    background-color: var(--color-black);
+    color: var(--color-white);
+    &:not(:disabled):hover  { background-color: #2a2a2a; transform: translateY(-1px); box-shadow: 0 3px 12px rgba(0,0,0,0.18); }
+    &:not(:disabled):active { transform: translateY(0); box-shadow: none; }
+  }
+
+  // Accent outline — Resume
+  &--outline {
+    background-color: transparent;
+    color: var(--color-accent);
+    border: 1.5px solid var(--color-accent);
+    &:not(:disabled):hover  { background-color: rgba(123,110,224,0.08); transform: translateY(-1px); box-shadow: 0 3px 12px rgba(123,110,224,0.18); }
+    &:not(:disabled):active { transform: translateY(0); box-shadow: none; }
+  }
+
+  // Subtle ghost — all secondary actions
+  &--ghost {
+    background-color: rgba(10,10,10,0.04);
+    color: var(--color-text-muted);
+    &:not(:disabled):hover  { background-color: rgba(10,10,10,0.09); color: var(--color-black); transform: translateY(-1px); }
+    &:not(:disabled):active { transform: translateY(0); }
+  }
+
+  // Reset — accent ghost tint
+  &--reset {
+    background-color: rgba(123,110,224,0.07);
+    color: var(--color-accent);
+    &:not(:disabled):hover  { background-color: rgba(123,110,224,0.14); transform: translateY(-1px); box-shadow: 0 3px 12px rgba(123,110,224,0.12); }
+    &:not(:disabled):active { transform: translateY(0); box-shadow: none; }
+  }
+}
+
+@media (max-width: 720px) {
+  .ctrl-panel {
+    flex-direction: column;
+    gap: 1rem;
+
+    &__divider {
+      width: 100%; height: 1px;
+      align-self: auto;
+    }
+
+    &__group { padding: 0; }
+  }
+}

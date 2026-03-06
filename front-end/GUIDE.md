@@ -54,10 +54,14 @@ sofi-app/
 │   │   │       └── navbar.component.scss
 │   │   │
 │   │   ├── pages/                    ← One subfolder per route/page
-│   │   │   └── home/
-│   │   │       ├── home.component.ts
-│   │   │       ├── home.component.html
-│   │   │       └── home.component.scss
+│   │   │   ├── home/
+│   │   │   │   ├── home.component.ts
+│   │   │   │   ├── home.component.html
+│   │   │   │   └── home.component.scss
+│   │   │   └── upload/               ← Upload page (routed from Start button)
+│   │   │       ├── upload.component.ts
+│   │   │       ├── upload.component.html
+│   │   │       └── upload.component.scss
 │   │   │
 │   │   └── services/                 ← (create as needed)
 │   │
@@ -151,23 +155,33 @@ Using `loadComponent` (lazy loading) keeps the initial bundle small.
 
 ## 6. Connecting the "Start" Button
 
-The **Start** button on the homepage is wired to `HomeComponent.onStartClick()`
-in `src/app/pages/home/home.component.ts`:
+The **Start** button navigates to `/app`, which is now fully wired to the
+`UploadComponent` (`src/app/pages/upload/`).
 
 ```typescript
+// home.component.ts
 onStartClick(): void {
-  // TODO: Replace '/app' with the actual route path when ready
-  this.router.navigate(['/app']);
+  this.router.navigate(['/app']);   // → UploadComponent
 }
 ```
 
-**Steps to connect it to a real page:**
+The route is registered in `app.routes.ts` using lazy loading:
 
-1. Create your functional page component (see Section 5).
-2. Register it in `app.routes.ts` under the path `/app` (or whatever you choose).
-3. Update the `router.navigate(['/app'])` call above to match.
+```typescript
+{
+  path: 'app',
+  loadComponent: () =>
+    import('./pages/upload/upload.component')
+      .then(m => m.UploadComponent),
+  title: 'Sofi — Upload Signal'
+}
+```
 
-That's it — no changes needed in the HTML template.
+**To redirect the Start button to a different page later:**
+
+1. Create the new page component (see Section 5).
+2. Register it in `app.routes.ts` under your chosen path.
+3. Update `router.navigate(['/app'])` in `home.component.ts` to match.
 
 ---
 
@@ -252,7 +266,7 @@ const apiUrl = environment.apiBaseUrl;
 | Path | Component | Notes |
 |---|---|---|
 | `/` | `HomeComponent` | Landing / hero page (no navbar) |
-| `/app` | *(to be created)* | Main functioning page — wired to Start button |
+| `/app` | `UploadComponent` | Upload signal file — wired to Start button |
 
 Add new rows to this table as you expand the app.
 
@@ -299,16 +313,160 @@ If you later need the navbar back on the homepage:
    padding-top: 5rem; // offset for fixed navbar
    ```
 
+## 13. Cine Viewer — Dual Signal Display (Input & Output)
+
+The **cine viewer** renders two side-by-side animated scrolling waveform canvases that appear below the upload UI after the user clicks **Analyse**. The left canvas shows the **Input Signal**; the right canvas shows the **Output Signal** (currently a mirror of the input — ready for you to apply processing). A single shared **control panel** below both canvases drives both simultaneously.
+
 ---
 
-## 13. Recommended Next Steps
+### Layout
+
+```
+┌─────────────────────┐  ┌─────────────────────┐
+│   Input Signal      │  │   Output Signal      │
+│   [canvas]          │  │   [canvas]           │
+└─────────────────────┘  └─────────────────────┘
+┌──────────────────────────────────────────────┐
+│  Playback | Zoom | Speed | View (ctrl-panel) │
+└──────────────────────────────────────────────┘
+```
+
+- On screens **≥ 860 px** the two canvases sit side by side (`flex-direction: row`).
+- On screens **< 860 px** they stack vertically (`flex-direction: column`).
+- The wrapper `.dual-viewer` expands up to `1720 px` to make the most of wide screens.
+- The `.ctrl-panel-wrap` beneath it spans the full width of both canvases.
+
+---
+
+### CSV format expected
+
+Two columns, no header row. Delimiter: comma, semicolon, or tab.
+
+```
+0,0.12
+1,0.45
+2,0.78
+```
+
+| Column | Meaning | Unit |
+|---|---|---|
+| First  | Time      | ms |
+| Second | Amplitude | mV |
+
+Rows that cannot be parsed are silently skipped.
+
+---
+
+### Architecture — how it works
+
+#### History buffer
+Every sample consumed by the playhead is pushed into `history: SignalSample[]`. This is the source of truth for all rendering — it enables panning into the past and re-rendering at any zoom level without re-reading the signal array.
+
+#### Viewport window
+Each render call computes a `windowSlice` — the subset of `history[]` that is currently visible — based on three factors:
+
+| Factor | State property | Effect |
+|---|---|---|
+| Playhead position | `signalIndex` | How far into the signal we are |
+| Pan offset | `panOffset` (samples) | How far back from the live head the view is |
+| Zoom level | `pixelsPerSample` | How many canvas pixels one sample occupies |
+
+```
+samplesVisible = floor(plotW / pixelsPerSample)
+headIdx        = history.length - 1 - panOffset
+tailIdx        = headIdx - samplesVisible + 1
+windowSlice    = history[tailIdx … headIdx]
+```
+
+#### Speed
+`samplesPerFrame` controls how many samples are consumed per `requestAnimationFrame` tick. At 1 (default) the signal scrolls at one sample per frame (~60 smp/s at 60 fps). Increasing it speeds up playback without dropping samples.
+
+---
+
+### Axis labels & dynamic Y limits
+
+- **Y-axis (mV):** computed once from global signal min/max with 10 % padding. Quarter-point values labelled at 0 %, 25 %, 50 %, 75 %, 100 % of plot height. Reset via **Reset** button.
+- **X-axis (ms):** shows the actual time values of the current `windowSlice` — updates every frame as the buffer shifts. Quarter-point timestamps shown at 0 %, 25 %, 50 %, 75 %, 100 % of plot width.
+
+---
+
+### Panning (canvas drag)
+
+Implemented directly on the `<canvas>` element via mouse and touch event listeners bound in `bindCanvasEvents()`.
+
+| Gesture | Behaviour |
+|---|---|
+| Drag right | Move forward in time (decrease `panOffset`) |
+| Drag left  | Go further back in history (increase `panOffset`) |
+| Release    | Freeze pan offset; live playback continues |
+
+A subtle **"Drag to pan"** label is displayed in the bottom-right corner of the canvas at all times.
+
+---
+
+### Control panel buttons
+
+All controls live in `.ctrl-panel` below the canvas.
+
+| Button | Group | Behaviour |
+|---|---|---|
+| **Stop**    | Playback | `cancelAnimationFrame` — freezes at current position. Disabled while paused. |
+| **Resume**  | Playback | Re-enters RAF loop from current `signalIndex`. Disabled while playing or signal finished. |
+| **Restart** | Playback | Clears `history`, resets `signalIndex` to 0 and `panOffset` to 0, restarts animation. |
+| **Zoom +**  | Zoom | Multiplies `pixelsPerSample` by 1.1 → fewer ms visible (narrow window). Clamped to 50. |
+| **Zoom −**  | Zoom | Divides `pixelsPerSample` by 1.1 → more ms visible (wide window). Clamped to 0.05. |
+| **Speed +** | Speed | Multiplies `samplesPerFrame` by 1.1. Clamped to 200. |
+| **Speed −** | Speed | Divides `samplesPerFrame` by 1.1. Clamped to 0.01. |
+| **Reset**   | View | Restores `pixelsPerSample`, `samplesPerFrame`, `panOffset` to defaults; restores Y limits. Redraws immediately if paused. |
+
+The **Speed** group shows a live badge (e.g. `1.0×`, `2.3×`) reflecting the current multiplier relative to the default.
+
+---
+
+### Key component properties
+
+| Property | Type | Purpose |
+|---|---|---|
+| `signal` | `SignalSample[]` | Parsed CSV data — never mutated after parsing |
+| `history` | `SignalSample[]` | All samples consumed so far — source for pan/zoom |
+| `signalIndex` | `number` | Index of the next sample to consume from `signal` |
+| `pixelsPerSample` | `number` | Current zoom level (default `1`) |
+| `samplesPerFrame` | `number` | Current speed (default `1`) |
+| `panOffset` | `number` | Samples behind live head (0 = live) |
+| `yMin / yMax` | `number` | Current Y-axis range (reset via Reset) |
+| `yMinBase / yMaxBase` | `number` | Original Y limits from signal data |
+| `CANVAS_W/H` | `readonly` | Canvas pixel dimensions (800 × 260) |
+| `PAD_*` | `readonly` | Plot area margins for axis label space |
+| `canvasRef` | `ElementRef` | Reference to the left (Input Signal) canvas |
+| `outputCanvasRef` | `ElementRef` | Reference to the right (Output Signal) canvas |
+
+---
+
+### Theming
+
+The canvas uses a dark background (`#0d0d0d` / `#111111`) to contrast with the light page. The waveform is drawn in `--color-accent` (`#7b6ee0`) with a `shadowBlur: 6` glow.
+
+The control panel (`.ctrl-panel`) sits on `--color-white` with a light border and subtle shadow, styled with four button variants:
+
+| Class | Usage |
+|---|---|
+| `.ctrl-btn--primary` | Stop — solid black pill |
+| `.ctrl-btn--outline` | Resume — accent-colour outline pill |
+| `.ctrl-btn--ghost`   | Restart, Zoom ±, Speed ± — neutral tinted pill |
+| `.ctrl-btn--reset`   | Reset — accent-tinted ghost pill |
+
+---
+
+## 14. Recommended Next Steps
 
 | Priority | Task |
 |---|---|
 | 🔴 High | Add `src/assets/images/Equalizer.png` |
-| 🔴 High | Create the main app page and wire the Start button (Section 6) |
+| 🔴 High | Connect `UploadComponent.onAnalyse()` to your signal-processing service |
+| 🟡 Medium | Create a results / analysis page and navigate to it after file upload |
 | 🟡 Medium | Add a `404 / not-found` page component |
 | 🟡 Medium | Create a shared `ButtonComponent` for reuse across pages |
+| 🟡 Medium | Add mouse-wheel zoom on the canvas |
 | 🟢 Low | Add NgRx or a simple Angular service for shared state |
 | 🟢 Low | Set up Karma / Jasmine unit tests for components |
 | 🟢 Low | Configure CI/CD pipeline (GitHub Actions, etc.) |
@@ -316,14 +474,19 @@ If you later need the navbar back on the homepage:
 
 ---
 
-## 14. Changelog
+## 15. Changelog
 
 | Version | Date | Changes |
 |---|---|---|
 | v1 | Project init | Initial homepage replica — navbar, hero image, headline, body, Start button |
-| v2 | UI refinements | • Removed navbar (logo + icon) from homepage<br>• Image vertically centered (`align-items: center` + `object-fit: contain`)<br>• "Equalizer" fully visible (removed `overflow: hidden`, added `white-space: nowrap`, adjusted `clamp` range)<br>• Start button centered relative to headline block (`align-self: center`) |
+| v2 | UI refinements | • Removed navbar from homepage<br>• Image vertically centered<br>• "Equalizer" headline fully visible<br>• Start button centered |
+| v3 | Upload page | • Created `UploadComponent` at `/app` route<br>• Drag-and-drop + click-to-upload drop zone<br>• "Analyse" CTA button<br>• Back arrow<br>• Fully themed |
+| v4 | Cine viewer | • Canvas-based scrolling waveform<br>• Appears after "Analyse" click<br>• Parses two-column CSV (time ms, value mV)<br>• Dynamic Y-axis limits<br>• X-axis with actual time values<br>• Quarter-point tick labels on both axes<br>• Stop / Resume buttons<br>• Accent waveform with glow |
+| v5 | Cine controls & pan | • History buffer architecture replacing simple FIFO<br>• Canvas drag-to-pan (mouse + touch)<br>• Restart button — replays from sample 0<br>• Zoom + / − buttons (±10 % pixelsPerSample)<br>• Speed + / − buttons (±10 % samplesPerFrame) with live badge<br>• Reset button — restores zoom, speed, pan, Y limits<br>• `.ctrl-panel` component with grouped layout and four button variants<br>• GUIDE.md Section 13 fully updated |
+| v5.1 | Pan fixes | • Reversed pan direction — drag right moves forward in time (matches standard chart behaviour)<br>• Removed pan offset indicator text from canvas top-right |
+| v5.2 | Dual-plot layout | • Added second (Output Signal) canvas to the right of Input Signal<br>• Single shared control panel drives both plots simultaneously<br>• Responsive: side-by-side ≥ 860 px, stacked < 860 px<br>• `.dual-viewer` wrapper expands to 1720 px for wide screens<br>• `outputCanvasRef` ViewChild wired to separate `<canvas #outputCanvas>`<br>• `renderCanvas()` called for both contexts each frame/pause redraw<br>• GUIDE.md Section 13 updated with dual-viewer layout docs |
+| v5.2.1 | Upload section alignment | • Restored `align-items: center` on `.upload-page` — upload block re-centred; dual-viewer and ctrl-panel-wrap remain full-width beneath it |
 
 ---
 
-*Questions or changes? Update this file as the project evolves so the team
-always has a single source of truth.*
+*Questions or changes? Update this file as the project evolves so the team always has a single source of truth.*

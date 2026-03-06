@@ -9,13 +9,14 @@ export const routes: Routes = [
   },
   // -------------------------------------------------------
   // ADD FUTURE ROUTES BELOW
-  // Example:
-  // {
-  //   path: 'app',
-  //   loadComponent: () => import('./pages/main-app/main-app.component')
-  //                        .then(m => m.MainAppComponent),
-  //   title: 'Sofi — Dashboard'
-  // },
+  // -------------------------------------------------------
+  {
+    path: 'app',
+    loadComponent: () =>
+      import('./pages/upload/upload.component')
+        .then(m => m.UploadComponent),
+    title: 'Sofi — Upload Signal'
+  },
   // -------------------------------------------------------
   {
     path: '**',
