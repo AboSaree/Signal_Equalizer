@@ -60,6 +60,11 @@
     <button class="upload-page__cta" [disabled]="!selectedFile" (click)="onAnalyse()" aria-label="Analyse signal">
       Analyse
     </button>
+
+    <!-- Error message -->
+    <p *ngIf="analyseError" style="color:#f87171;margin-top:12px;font-size:14px;text-align:center;">
+      ⚠ {{ analyseError }}
+    </p>
   </div>
 
   <!-- ══════════════════════════════════════════════

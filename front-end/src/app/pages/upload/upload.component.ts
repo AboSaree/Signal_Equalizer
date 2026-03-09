@@ -1,6 +1,8 @@
 import { Component, ElementRef, ViewChild, OnDestroy, NgZone } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
+import { HttpClient } from '@angular/common/http';
+import { environment } from '../../../environments/environment';
 
 interface SignalSample {
   time: number;   // ms (CSV) or seconds (audio)
@@ -21,6 +23,7 @@ export class UploadComponent implements OnDestroy {
 
   selectedFile: File | null = null;
   isDragOver = false;
+  analyseError: string | null = null;
 
   // ── Cine viewer state ─────────────────────────────
   showCine = false;
@@ -30,6 +33,9 @@ export class UploadComponent implements OnDestroy {
   isAudioFile = false;
 
   private signal: SignalSample[] = [];
+  private outputSignal: SignalSample[] = [];
+  private outputHistory: SignalSample[] = [];
+  private outputIndex = 0;
   private rafId: number | null = null;
 
   // Canvas dimensions
@@ -45,6 +51,10 @@ export class UploadComponent implements OnDestroy {
   private yMaxBase = 1;
   private yMin = -1;
   private yMax = 1;
+
+  // ── Output Y-axis limits ──────────────────────────
+  private outYMin = -1;
+  private outYMax = 1;
 
   // ── Playhead ──────────────────────────────────────
   // Index of NEXT sample to consume from signal[]
@@ -83,7 +93,7 @@ export class UploadComponent implements OnDestroy {
   private _onTouchMove!:  (e: TouchEvent) => void;
   private _onTouchEnd!:   (e: TouchEvent) => void;
 
-  constructor(private router: Router, private ngZone: NgZone) {}
+  constructor(private router: Router, private ngZone: NgZone, private http: HttpClient) {}
 
   ngOnDestroy(): void { this.stopAnimation(); }
 
@@ -100,62 +110,62 @@ export class UploadComponent implements OnDestroy {
   onDrop(e: DragEvent): void {
     e.preventDefault(); e.stopPropagation(); this.isDragOver = false;
     const file = e.dataTransfer?.files?.[0];
-    if (file) { this.selectedFile = file; this.resetCine(); }
+    if (file) { this.selectedFile = file; this.analyseError = null; this.resetCine(); }
   }
 
   onFileSelected(e: Event): void {
     const file = (e.target as HTMLInputElement).files?.[0];
-    if (file) { this.selectedFile = file; this.resetCine(); }
+    if (file) { this.selectedFile = file; this.analyseError = null; this.resetCine(); }
   }
 
   // ── Analyse ───────────────────────────────────────
 
   onAnalyse(): void {
     if (!this.selectedFile) return;
-    const isAudio = this.selectedFile.type === 'audio/mpeg' ||
-                    this.selectedFile.name.toLowerCase().endsWith('.mp3');
-    if (isAudio) {
-      this.parseMP3(this.selectedFile);
-    } else {
-      const reader = new FileReader();
-      reader.onload = (e) => this.parseCSV(e.target?.result as string);
-      reader.readAsText(this.selectedFile);
-    }
-  }
+    const formData = new FormData();
+    formData.append('file', this.selectedFile, this.selectedFile.name);
+    this.http.post<any>(`${environment.apiBaseUrl}/upload/`, formData).subscribe({
+      next: (res) => this.ngZone.run(() => {
+        this.isAudioFile = res.file_type === 'audio';
+        const times: number[]  = res.signal?.times  ?? [];
+        const values: number[] = res.signal?.values ?? [];
+        const samples: SignalSample[] = times.map((t, i) => ({ time: t, value: values[i] ?? 0 }));
+        this.loadSignal(samples);
 
-  private parseCSV(text: string): void {
-    const samples: SignalSample[] = [];
-    for (const line of text.trim().split(/\r?\n/)) {
-      if (!line.trim()) continue;
-      const parts = line.split(/[,;\t]/);
-      if (parts.length < 2) continue;
-      const t = parseFloat(parts[0]);
-      const v = parseFloat(parts[1]);
-      if (!isNaN(t) && !isNaN(v)) samples.push({ time: t, value: v });
-    }
-    if (!samples.length) return;
-    this.isAudioFile = false;
-    this.loadSignal(samples);
-  }
-
-  private async parseMP3(file: File): Promise<void> {
-    const arrayBuffer = await file.arrayBuffer();
-    const audioCtx = new AudioContext();
-    const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
-
-    const raw        = audioBuffer.getChannelData(0);   // channel 0, Float32 -1..1
-    const sampleRate = audioBuffer.sampleRate;           // e.g. 44100
-
-    // Downsample to ~4000 samples/sec — keeps canvas performance smooth
-    const KEEP_EVERY = Math.max(1, Math.floor(sampleRate / 4000));
-    const samples: SignalSample[] = [];
-    for (let i = 0; i < raw.length; i += KEEP_EVERY) {
-      samples.push({ time: i / sampleRate, value: raw[i] }); // time in seconds
-    }
-
-    this.isAudioFile = true;
-    // Re-enter Angular zone so change detection picks up showCine = true
-    this.ngZone.run(() => this.loadSignal(samples));
+        // Call equalize with unity gain to get the backend-processed output signal
+        const bands = (res.components ?? []).map((c: any) => ({
+          freq_min: c.freq_min, freq_max: c.freq_max, gain: 1.0
+        }));
+        this.http.post<any>(`${environment.apiBaseUrl}/equalize/`, {
+          signal: res.signal,
+          sample_rate: res.sample_rate,
+          components: bands.length ? bands : [{ freq_min: 0, freq_max: res.sample_rate / 2, gain: 1.0 }],
+          method: 'fourier'
+        }).subscribe({
+          next: (eqRes) => this.ngZone.run(() => {
+            const ot: number[]  = eqRes.output_signal?.times  ?? [];
+            const ov: number[]  = eqRes.output_signal?.values ?? [];
+            this.outputSignal = ot.map((t, i) => ({ time: t, value: ov[i] ?? 0 }));
+            // Compute output Y bounds
+            let dMin = Infinity, dMax = -Infinity;
+            for (let i = 0; i < this.outputSignal.length; i++) {
+              const v = this.outputSignal[i].value;
+              if (v < dMin) dMin = v; if (v > dMax) dMax = v;
+            }
+            const pad = (dMax - dMin || 1) * 0.1;
+            this.outYMin = dMin - pad; this.outYMax = dMax + pad;
+          }),
+          error: (err) => this.ngZone.run(() => {
+            console.error('Equalize error:', err);
+            this.analyseError = 'Output processing failed: ' + (err?.error?.error ?? err?.message ?? 'Unknown error');
+          })
+        });
+      }),
+      error: (err) => this.ngZone.run(() => {
+        console.error('Upload error:', err);
+        this.analyseError = 'Upload failed: ' + (err?.error?.error ?? err?.message ?? 'Unknown error');
+      })
+    });
   }
 
   private loadSignal(samples: SignalSample[]): void {
@@ -211,9 +221,12 @@ export class UploadComponent implements OnDestroy {
     for (let s = 0; s < advance && this.signalIndex < this.signal.length; s++) {
       this.history.push(this.signal[this.signalIndex++]);
     }
+    for (let s = 0; s < advance && this.outputIndex < this.outputSignal.length; s++) {
+      this.outputHistory.push(this.outputSignal[this.outputIndex++]);
+    }
 
-    this.renderCanvas(ctx);
-    if (outCtx) this.renderCanvas(outCtx);
+    this.renderCanvas(ctx, this.history, this.yMin, this.yMax);
+    if (outCtx) this.renderCanvas(outCtx, this.outputHistory, this.outYMin, this.outYMax);
 
     if (this.signalIndex < this.signal.length) {
       this.scheduleFrame(ctx, outCtx);
@@ -225,7 +238,7 @@ export class UploadComponent implements OnDestroy {
 
   // ── Render ────────────────────────────────────────
 
-  private renderCanvas(ctx: CanvasRenderingContext2D): void {
+  private renderCanvas(ctx: CanvasRenderingContext2D, history = this.history, yMin = this.yMin, yMax = this.yMax): void {
     const W = this.CANVAS_W, H = this.CANVAS_H;
     const pl = this.PAD_LEFT, pr = this.PAD_RIGHT;
     const pt = this.PAD_TOP,  pb = this.PAD_BOTTOM;
@@ -236,9 +249,9 @@ export class UploadComponent implements OnDestroy {
     const samplesVisible = Math.max(2, Math.round(plotW / this.pixelsPerSample));
 
     // Head = last history index visible (honoring pan)
-    const headIdx    = Math.max(0, this.history.length - 1 - this.panOffset);
+    const headIdx    = Math.max(0, history.length - 1 - this.panOffset);
     const tailIdx    = Math.max(0, headIdx - samplesVisible + 1);
-    const windowSlice = this.history.slice(tailIdx, headIdx + 1);
+    const windowSlice = history.slice(tailIdx, headIdx + 1);
 
     // ── Axis meta (driven by file type) ───────────────
     const xUnit     = this.isAudioFile ? 's'         : 'ms';
@@ -267,7 +280,7 @@ export class UploadComponent implements OnDestroy {
     ctx.font = '10px DM Sans, sans-serif';
     ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
     for (let i = 0; i <= 4; i++) {
-      const val = this.yMin + (1 - i / 4) * (this.yMax - this.yMin);
+      const val = yMin + (1 - i / 4) * (yMax - yMin);
       ctx.fillText(val.toFixed(yDecimals), pl - 6, pt + (plotH / 4) * i);
     }
 
@@ -295,7 +308,7 @@ export class UploadComponent implements OnDestroy {
     // ── Waveform ──────────────────────────────────────
     if (windowSlice.length > 1) {
       const toY = (v: number) =>
-        pt + plotH * (1 - (v - this.yMin) / (this.yMax - this.yMin));
+        pt + plotH * (1 - (v - yMin) / (yMax - yMin));
 
       if (this.isAudioFile) {
         // Audio: filled mirror waveform (envelope style)
@@ -399,7 +412,7 @@ export class UploadComponent implements OnDestroy {
       this.panOffsetAtStart + sampleDelta,
       this.history.length - 1
     ));
-    if (!this.isPlaying) this.renderCanvas(canvas.getContext('2d')!);
+    if (!this.isPlaying) this.renderCanvas(canvas.getContext('2d')!, this.history, this.yMin, this.yMax);
   }
 
   private panEnd(): void {
@@ -427,6 +440,8 @@ export class UploadComponent implements OnDestroy {
     this.stopAnimation();
     this.signalIndex = 0;
     this.history = [];
+    this.outputIndex = 0;
+    this.outputHistory = [];
     this.panOffset = 0;
     this.isPlaying = true;
     setTimeout(() => this.startAnimation(), 0);
@@ -465,8 +480,8 @@ export class UploadComponent implements OnDestroy {
     if (this.isPlaying) return;
     const canvas    = this.canvasRef?.nativeElement;
     const outCanvas = this.outputCanvasRef?.nativeElement;
-    if (canvas)    this.renderCanvas(canvas.getContext('2d')!);
-    if (outCanvas) this.renderCanvas(outCanvas.getContext('2d')!);
+    if (canvas)    this.renderCanvas(canvas.getContext('2d')!, this.history, this.yMin, this.yMax);
+    if (outCanvas) this.renderCanvas(outCanvas.getContext('2d')!, this.outputHistory, this.outYMin, this.outYMax);
   }
 
   private stopAnimation(): void {
@@ -479,7 +494,8 @@ export class UploadComponent implements OnDestroy {
     this.showCine = false;
     this.isAudioFile = false;
     this.signal = []; this.history = [];
-    this.signalIndex = 0; this.panOffset = 0;
+    this.outputSignal = []; this.outputHistory = [];
+    this.signalIndex = 0; this.outputIndex = 0; this.panOffset = 0;
     this.pixelsPerSample = this.DEFAULT_PPS;
     this.samplesPerFrame = this.DEFAULT_SPF;
   }

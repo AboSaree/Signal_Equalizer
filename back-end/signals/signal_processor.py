@@ -100,7 +100,7 @@ def parse_mp3(file_bytes: bytes):
     max_val = float(2 ** (seg.sample_width * 8 - 1))
     if max_val > 0:
         samples /= max_val
-    times_np = np.arange(len(samples)) / sample_rate * 1000.0  # ms
+    times_np = np.arange(len(samples)) / sample_rate  # seconds (audio)
     return times_np, samples, float(sample_rate)
 
 
